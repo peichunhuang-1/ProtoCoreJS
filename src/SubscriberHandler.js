@@ -58,8 +58,13 @@ export class SubscriberHandler {
         return buffer;
     }
     add_subscriber(topic, cb_handler) {
-        this.port.then((tcp_port)=>{
+        
+        if (this.subscribed_map.has(topic)) {
             this.subscribed_map.set(topic, cb_handler);
+            return;
+        }
+
+        this.port.then((tcp_port)=>{
             const request = { 
                 object: topic,
                 ip: this.ip,
@@ -67,6 +72,7 @@ export class SubscriberHandler {
                 url: '*',
                 node_name: this.node_name
             };
+            this.subscribed_map.set(topic, cb_handler);
             this.node_clients.forEach((client, key) => {
                 client.TopicConnection(request, (error, response) => {
                     if (error) {

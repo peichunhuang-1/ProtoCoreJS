@@ -4,7 +4,8 @@ import { loadProtosFromDirs, loadGrpcDefine } from './ProtoLoader.js';
 import {PublisherHandler} from './PublisherHandler.js'
 import {SubscriberHandler} from './SubscriberHandler.js'
 import {TransformHandler} from './TransformHandler.js'
-
+import {NodeCommand} from './NodeCommand.js'
+import {InfluxDBInterface} from './InfluxDBInterface.js'
 dotenv.config();
 const protoInstallDir = process.env.PROTO_INSTALL_DIR || '../../../protos';
 
@@ -15,12 +16,15 @@ const regist_rpc = loadGrpcDefine(protoInstallDir+"/registrar.proto").registrar;
 export class NodeHandler {
     constructor(name, namespace) {
         this.node_name = namespace + "/" + name;
+        this.db = new InfluxDBInterface(this.node_name);
         if (`${process.env.CORE_LOCAL_IP}` === undefined) this.local_ip = `${process.env.CORE_LOCAL_IP}`;
         else this.local_ip = "127.0.0.1";
         if (`${process.env.CORE_MASTER_ADDR}` === undefined) this.srv_addr = `${process.env.CORE_MASTER_ADDR}`;
         else this.srv_addr = "127.0.0.1:50051";
         this.node_clients = new Map();
         this.master_client = new regist_rpc.Registration(this.srv_addr, grpc.credentials.createInsecure());
+
+        this.node_commander = new NodeCommand();
 
         this.subscriber_handler = new SubscriberHandler(root, this.node_name);
         this.publisher_handler = new PublisherHandler(root);
@@ -81,6 +85,7 @@ export class NodeHandler {
                     client
                 ); 
                 this.subscriber_handler.add_new_node(response.node_name, client);
+                this.node_commander.add_node(response.node_name, response.ip + ":" + response.port);
             } else {
                 if (this.node_clients.has(response.node_name)) {
                     this.node_clients.delete(response.node_name);
@@ -88,6 +93,32 @@ export class NodeHandler {
                 }
             }
         }
+    }
+    getMenu(count) {
+        if (count !== this.node_commander.menu.count) {
+            return {
+                nodes: this.node_commander.menu.nodes,
+                topics: this.node_commander.menu.topics,
+                count: this.node_commander.menu.count
+            };
+        } else {
+            return {count: this.node_commander.menu.count};
+        }
+    }
+    topicSetting(topic, handle_t) {
+        console.log(topic);
+        const handler = {
+            handle: (data, decoder) => {
+                if (handle_t.database) {
+                    this.db.writeTopicData(topic, data, decoder.fullName.replace(/^\./, ''));
+                }
+                if (handle_t.real_time) {
+                    console.log("transfer to real time");
+                }
+            }
+        };
+        this.subscriber_handler.add_subscriber(topic, handler);
+        this.node_commander.menu.upsertTopicHandler(topic, handle_t);
     }
 
 };
